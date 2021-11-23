@@ -8,7 +8,7 @@
 #define CO2 32
 #define DHTTYPE DHT22
 
-const char *serverName = "http://127.0.0.1:8050/data";
+const char *serverName = "http://127.0.0.1:8050";
 unsigned long elapsedMillis = 0;
 unsigned long update_interval = 1000;
 
@@ -59,8 +59,6 @@ void uploadSensorData()
         HTTPClient http;
 
         http.begin(client, serverName);
-        http.addHeader("Content-Type", "application/json");
-        String api = API_KEY;
         String httpRequestData = "{\"Temperature\":\"" + String(temperature) + "\",\"Humidity\":\"" + String(humidity) + "\",\"CO2\":\"" + String(co2) + "\"}";
         int httpResponseCode = http.POST(httpRequestData);
 

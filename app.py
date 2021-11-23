@@ -48,7 +48,7 @@ cache.set("data", {})
 TIMEOUT = 5
 
 
-@server.route("/data", methods=["POST"])
+@server.route("/", methods=["POST"])
 def get_data():
     print(request.json, datetime.now())
     return request.json
