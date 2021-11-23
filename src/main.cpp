@@ -8,7 +8,7 @@
 #define CO2 32
 #define DHTTYPE DHT22
 
-const char *serverName = "http://api.thingspeak.com/update";
+const char *serverName = "http://127.0.0.1:8050/data";
 unsigned long elapsedMillis = 0;
 unsigned long update_interval = 1000;
 
@@ -28,12 +28,15 @@ void Wifi_Init()
 
 void updateSensorReadings()
 {
-    humidity = dht.readHumidity();
-    co2 = analogRead(CO2);
-    temperature = dht.readTemperature();
-    if (isnan(humidity) || isnan(temperature) || isnan(co2))
+    if (isnan(dht.readHumidity()) || isnan(dht.readTemperature()) || isnan(analogRead(CO2)))
     {
         return;
+    }
+    else
+    {
+        humidity = dht.readHumidity();
+        co2 = analogRead(CO2);
+        temperature = dht.readTemperature();
     }
 }
 
@@ -58,7 +61,7 @@ void uploadSensorData()
         http.begin(client, serverName);
         http.addHeader("Content-Type", "application/json");
         String api = API_KEY;
-        String httpRequestData = "{\"api_key\":\"" + api + "\",\"field1\":\"" + String(temperature) + "\",\"field2\":\"" + String(humidity) + "\",\"field3\":\"" + String(co2) + "\"}";
+        String httpRequestData = "{\"Temperature\":\"" + String(temperature) + "\",\"Humidity\":\"" + String(humidity) + "\",\"CO2\":\"" + String(co2) + "\"}";
         int httpResponseCode = http.POST(httpRequestData);
 
         Serial.print("HTTP Response code: ");

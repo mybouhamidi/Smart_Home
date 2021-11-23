@@ -21,7 +21,7 @@ body {
     margin-left: 30%;
 }
 
-#download-button, #title {
+#download-button, #title, #stop-button {
     position: relative;
     display: flex;
     -moz-box-align: center;

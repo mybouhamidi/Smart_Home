@@ -1,16 +1,16 @@
 import dash
 import dash_auth
+from datetime import datetime
+from flask import request
 from flask_caching import Cache
 import dash_bootstrap_components as dbc
-import dash_daq as daq
 import dash_html_components as html
 import dash_core_components as dcc
 from dash_extensions.enrich import Input, Output, PreventUpdate
 from dash_extensions import Download
 import pandas as pd
 
-import json
-import urllib.request
+import requests
 import sys
 import os
 
@@ -45,24 +45,32 @@ server = app.server
 
 cache.set("data", {})
 
-TIMEOUT = 10
-# Call to Firebase
+TIMEOUT = 5
+
+
+@server.route("/data", methods=["POST"])
+def get_data():
+    print(request.json, datetime.now())
+    return request.json
+
+
 @cache.memoize(timeout=TIMEOUT)
 def call_thingspeak():
-    contents = urllib.request.urlopen(
-        "https://api.thingspeak.com/channels/1535860/feeds?api_key=DIH175GW6M7JGTLT&results=8000"
-    ).read()
+    try:
+        contents = requests.get(
+            "https://api.thingspeak.com/channels/1535860/feeds?api_key=DIH175GW6M7JGTLT&results=8000"
+        )
+        data = contents.json()
+        df = {"Time": [], "Temperature": [], "Humidity": [], "CO2": []}
+        for i in range(len(data["feeds"])):
+            df["Time"].append(pd.Timestamp(data["feeds"][i]["created_at"]))
+            df["Temperature"].append(data["feeds"][i]["field1"])
+            df["Humidity"].append(data["feeds"][i]["field2"])
+            df["CO2"].append((float(data["feeds"][i]["field3"]) / 4095.0))
 
-    text = contents.decode("utf-8")
-    data = json.loads(text)
-    df = {"Time": [], "Temperature": [], "Humidity": [], "CO2": []}
-    for i in range(len(data["feeds"])):
-        df["Time"].append(pd.Timestamp(data["feeds"][i]["created_at"]))
-        df["Temperature"].append(data["feeds"][i]["field1"])
-        df["Humidity"].append(data["feeds"][i]["field2"])
-        df["CO2"].append((float(data["feeds"][i]["field3"]) / 4095) * 3.3)
-
-    return pd.DataFrame(df, columns=["Time", "Temperature", "Humidity", "CO2"])
+        return pd.DataFrame(df, columns=["Time", "Temperature", "Humidity", "CO2"])
+    except requests.exceptions.ConnectionError:
+        return cache.get("data")
 
 
 def get_cache():
@@ -110,6 +118,13 @@ app.layout = html.Div(
                                                 n_clicks=0,
                                             ),
                                             Download(id="download_plot"),
+                                            dbc.Button(
+                                                "Stop/ Resume",
+                                                id="stop-button",
+                                                color="primary",
+                                                className="mb-3",
+                                                n_clicks=0,
+                                            ),
                                         ],
                                     ),
                                     width=3,
@@ -144,6 +159,7 @@ app.layout = html.Div(
                                                     ),
                                                 ],
                                             ),
+                                            html.Br(),
                                             dbc.Row(
                                                 [
                                                     dcc.Graph(
@@ -162,11 +178,6 @@ app.layout = html.Div(
                                                     html.Br(),
                                                 ]
                                             ),
-                                            dbc.Row(
-                                                [
-                                                    html.Div(id="slider"),
-                                                ]
-                                            ),
                                         ]
                                     ),
                                     width=7,
@@ -183,24 +194,34 @@ app.layout = html.Div(
 
 
 @app.callback(
+    [Output("update_titles", "children"), Output("graph", "figure")],
     [
-        Output("update_titles", "children"),
-        Output("graph", "figure"),
-        # Output("slider","children"),
-        # Output("cross-filter", "min"),
-        # Output("cross-filter", "max"),
-        # Output("cross-filter", "value"),
-        # Output("cross-filter", "marks"),
+        Input("int", "n_intervals"),
+        Input("data-select", "value"),
+        Input("stop-button", "n_clicks"),
     ],
-    [Input("int", "n_intervals"), Input("data-select", "value")],
 )
-def save_cache(n, choice):
+def save_cache(n, choice, n1):
+    ctx = dash.callback_context
+
+    if n1 % 2 == 1:
+        raise PreventUpdate
+
+    if n is None:
+        raise PreventUpdate
+
     if choice is None or choice == []:
         choice = ["Temperature", "Humidity", "CO2"]
 
     cache.clear()
     df = get_cache()
-    cache.set("data", df)
+    df.dropna()
+    temperature, co2, humidity = (
+        df["Temperature"].iloc[-1],
+        df["CO2"].iloc[-1],
+        df["Humidity"].iloc[-1],
+    )
+
     fig = dict(
         data=[
             dict(
@@ -226,24 +247,13 @@ def save_cache(n, choice):
         ),
     )
 
-    temperature, co2, humidity = (
-        df["Temperature"].iloc[-1],
-        df["CO2"].iloc[-1],
-        df["Humidity"].iloc[-1],
-    )
     titles = [
         html.H4(f"Temperature : {temperature}°C", id="temperature"),
         html.H4(f"Humidity : {humidity}%", id="humidity"),
         html.H4(f"CO2 level : {co2}%", id="co2"),
     ]
 
-    # slider = dcc.Slider(id="cross-filer", marks={str(day): str(day) for day in df["Time"]}, min=df["Time"].min().day, value=df["Time"].min().day, max=df["Time"].max().day)
-
-    return [
-        titles,
-        fig,
-        # slider
-    ]
+    return [titles, fig]
 
 
 @app.callback(
