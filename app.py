@@ -1,7 +1,7 @@
 import dash
 import dash_auth
+import redis
 from datetime import datetime
-from flask import request
 from flask_caching import Cache
 import dash_bootstrap_components as dbc
 import dash_html_components as html
@@ -10,7 +10,7 @@ from dash_extensions.enrich import Input, Output, PreventUpdate
 from dash_extensions import Download
 import pandas as pd
 
-import requests
+import json
 import sys
 import os
 
@@ -24,6 +24,12 @@ def find_data_file(filename):
     return os.path.join(datadir, filename)
 
 
+redis = redis.Redis(
+    host="redis-13884.c275.us-east-1-4.ec2.cloud.redislabs.com",
+    port="13884",
+    password="JhW0tL0cBzJQihh57TTnblPdE9LlaP5J",
+)
+
 app = dash.Dash(
     __name__,
     title="Smart Home",
@@ -36,7 +42,9 @@ app = dash.Dash(
     ],
 )
 
-auth = dash_auth.BasicAuth(app, {"admin": "admin"})
+auth = dash_auth.BasicAuth(
+    app, {redis.get("username").decode(): redis.get("password").decode()}
+)
 
 cache = Cache(
     app.server, config={"CACHE_TYPE": "filesystem", "CACHE_DIR": "cache-directory"}
@@ -45,36 +53,27 @@ server = app.server
 
 cache.set("data", {})
 
-TIMEOUT = 5
-
-
-@server.route("/", methods=["POST"])
-def get_data():
-    print(request.json, datetime.now())
-    return request.json
+TIMEOUT = 2
 
 
 @cache.memoize(timeout=TIMEOUT)
-def call_thingspeak():
-    try:
-        contents = requests.get(
-            "https://api.thingspeak.com/channels/1535860/feeds?api_key=DIH175GW6M7JGTLT&results=8000"
-        )
-        data = contents.json()
-        df = {"Time": [], "Temperature": [], "Humidity": [], "CO2": []}
-        for i in range(len(data["feeds"])):
-            df["Time"].append(pd.Timestamp(data["feeds"][i]["created_at"]))
-            df["Temperature"].append(data["feeds"][i]["field1"])
-            df["Humidity"].append(data["feeds"][i]["field2"])
-            df["CO2"].append((float(data["feeds"][i]["field3"]) / 4095.0))
+def call_redis():
+    data = redis.get("data").decode()
+    data = data.split(";")
+    data.pop()
+    data = [json.loads(_) for _ in data]
+    df = {"Time": [], "Temperature": [], "Humidity": [], "CO2": []}
+    for key in data:
+        df["Time"].append(datetime.fromtimestamp(key["Time"]))
+        df["Temperature"].append(key["Temperature"])
+        df["Humidity"].append(key["Humidity"])
+        df["CO2"].append(key["CO2"])
 
-        return pd.DataFrame(df, columns=["Time", "Temperature", "Humidity", "CO2"])
-    except requests.exceptions.ConnectionError:
-        return cache.get("data")
+    return pd.DataFrame(df, columns=["Time", "Temperature", "Humidity", "CO2"])
 
 
 def get_cache():
-    return call_thingspeak()
+    return call_redis()
 
 
 app.layout = html.Div(
@@ -202,8 +201,6 @@ app.layout = html.Div(
     ],
 )
 def save_cache(n, choice, n1):
-    ctx = dash.callback_context
-
     if n1 % 2 == 1:
         raise PreventUpdate
 
