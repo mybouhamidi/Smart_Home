@@ -32,7 +32,6 @@ unsigned long getTime()
     struct tm timeinfo;
     if (!getLocalTime(&timeinfo))
     {
-        //Serial.println("Failed to obtain time");
         return (0);
     }
     time(&now);
@@ -94,7 +93,7 @@ void uploadSensorData()
         serializeJson(doc, jsonStr);
         auto sender = gRedis->append("data", jsonStr.c_str());
         auto separator = gRedis->append("data", ";");
-        Serial.println(sender);
+        Serial.println(jsonStr.c_str());
         doc.clear();
         elapsedMillis = millis();
     }

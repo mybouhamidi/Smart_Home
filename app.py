@@ -1,14 +1,15 @@
+from json.decoder import JSONDecodeError
 import dash
-import dash_auth
 import redis
 from datetime import datetime
 from flask_caching import Cache
 import dash_bootstrap_components as dbc
-import dash_html_components as html
-import dash_core_components as dcc
-from dash_extensions.enrich import Input, Output, PreventUpdate
+from dash import html, dcc
+from dash_extensions.enrich import Input, Output
 from dash_extensions import Download
+from dash.exceptions import PreventUpdate
 import pandas as pd
+import secret
 
 import json
 import sys
@@ -25,9 +26,9 @@ def find_data_file(filename):
 
 
 redis = redis.Redis(
-    host="redis-13884.c275.us-east-1-4.ec2.cloud.redislabs.com",
-    port="13884",
-    password="JhW0tL0cBzJQihh57TTnblPdE9LlaP5J",
+    host=secret.host,
+    port=secret.port,
+    password=secret.password,
 )
 
 app = dash.Dash(
@@ -42,10 +43,6 @@ app = dash.Dash(
     ],
 )
 
-auth = dash_auth.BasicAuth(
-    app, {redis.get("username").decode(): redis.get("password").decode()}
-)
-
 cache = Cache(
     app.server, config={"CACHE_TYPE": "filesystem", "CACHE_DIR": "cache-directory"}
 )
@@ -53,7 +50,7 @@ server = app.server
 
 cache.set("data", {})
 
-TIMEOUT = 2
+TIMEOUT = 1
 
 
 @cache.memoize(timeout=TIMEOUT)
@@ -61,9 +58,15 @@ def call_redis():
     data = redis.get("data").decode()
     data = data.split(";")
     data.pop()
-    data = [json.loads(_) for _ in data]
+    data_ = []
+    for _ in data:
+        try:
+            data_.append(json.loads(_))
+        except JSONDecodeError:
+            pass
+
     df = {"Time": [], "Temperature": [], "Humidity": [], "CO2": []}
-    for key in data:
+    for key in data_:
         df["Time"].append(datetime.fromtimestamp(key["Time"]))
         df["Temperature"].append(key["Temperature"])
         df["Humidity"].append(key["Humidity"])
@@ -171,7 +174,7 @@ app.layout = html.Div(
                                                     ),
                                                     dcc.Interval(
                                                         id="int",
-                                                        interval=2000,
+                                                        interval=1000,
                                                         n_intervals=0,
                                                     ),
                                                     html.Br(),
@@ -231,6 +234,8 @@ def save_cache(n, choice, n1):
         ],
         layout=dict(
             title="Sensor readings over time",
+            showlegend=True,
+            legend=dict(orientation="h", y=100),
             yaxis=dict(
                 title="Sensor reading",
                 titlefont=dict(size=14),
